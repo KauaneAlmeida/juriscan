@@ -68,11 +68,7 @@ export default function OabInput({ onValidOab, error: externalError, disabled, c
       if (json.data?.valid) {
         setStatus("valid");
         setMessage(json.data.formatted);
-        // Mostrar nome do advogado confirmado pelo CNA
-        const nomeInfo = json.data.nomeAdvogado
-          ? `${json.data.nomeAdvogado} — ${json.data.seccional}`
-          : json.data.seccional;
-        setSeccional(nomeInfo);
+        setSeccional(json.data.seccional);
         onValidOabRef.current(json.data.compacto);
       } else {
         setStatus("error");

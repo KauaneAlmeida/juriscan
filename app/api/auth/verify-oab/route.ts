@@ -10,76 +10,6 @@ const verifyOabSchema = z.object({
   currentUserId: z.string().uuid().optional(),
 });
 
-// Verificar OAB no Cadastro Nacional de Advogados (CNA) da OAB
-async function verificarNoCNA(
-  inscricao: string,
-  uf: string
-): Promise<{ found: boolean; nome?: string; tipo?: string }> {
-  // Step 1: GET page to obtain CSRF token + cookies
-  const pageRes = await fetch("https://cna.oab.org.br/", {
-    headers: { "User-Agent": "Mozilla/5.0 (compatible; Juriscan/1.0)" },
-  });
-
-  const html = await pageRes.text();
-
-  // Extract CSRF token from HTML
-  const tokenMatch = html.match(
-    /name="__RequestVerificationToken"[^>]*value="([^"]*)"/
-  );
-  if (!tokenMatch) {
-    throw new Error("CNA: não foi possível obter token de verificação");
-  }
-  const csrfToken = tokenMatch[1];
-
-  // Extract cookies
-  let cookieString = "";
-  if (typeof pageRes.headers.getSetCookie === "function") {
-    cookieString = pageRes.headers
-      .getSetCookie()
-      .map((c: string) => c.split(";")[0])
-      .join("; ");
-  } else {
-    const setCookie = pageRes.headers.get("set-cookie");
-    if (setCookie) {
-      cookieString = setCookie
-        .split(",")
-        .map((c: string) => c.trim().split(";")[0])
-        .join("; ");
-    }
-  }
-
-  // Step 2: POST search request
-  const searchRes = await fetch("https://cna.oab.org.br/Home/Search", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/x-www-form-urlencoded",
-      Cookie: cookieString,
-      "User-Agent": "Mozilla/5.0 (compatible; Juriscan/1.0)",
-    },
-    body: new URLSearchParams({
-      __RequestVerificationToken: csrfToken,
-      IsMobile: "false",
-      Insc: inscricao,
-      Uf: uf,
-      TipoInsc: "1",
-      NomeAdvo: "",
-    }).toString(),
-  });
-
-  const result = await searchRes.json();
-
-  if (result.Success && Array.isArray(result.Data) && result.Data.length > 0) {
-    const advogado = result.Data[0];
-    return {
-      found: true,
-      nome: advogado.Nome,
-      tipo: advogado.TipoInscOab,
-    };
-  }
-
-  return { found: false };
-}
-
 export const POST = apiHandler(
   async (request) => {
     const { oab: oabInput, currentUserId } = await parseBody(request, verifyOabSchema);
@@ -93,17 +23,6 @@ export const POST = apiHandler(
     const compacto = oab.compacto();
     const formatted = oab.formatado();
     const seccional = oab.getNomeSeccional();
-    const numero = parseInt(oab.getNumero(), 10).toString(); // Sem zeros à esquerda
-    const uf = oab.getUF();
-
-    // Verificar no CNA (Cadastro Nacional de Advogados)
-    const cnaResult = await verificarNoCNA(numero, uf);
-    if (!cnaResult.found) {
-      return successResponse({
-        valid: false,
-        error: "Número de OAB não encontrado no Cadastro Nacional de Advogados",
-      });
-    }
 
     // Check uniqueness
     const admin = await createAdminClient();
@@ -130,8 +49,6 @@ export const POST = apiHandler(
       formatted,
       compacto,
       seccional,
-      nomeAdvogado: cnaResult.nome,
-      tipoInscricao: cnaResult.tipo,
     });
   },
   { requireAuth: false, rateLimit: RATE_LIMITS.oabVerify }

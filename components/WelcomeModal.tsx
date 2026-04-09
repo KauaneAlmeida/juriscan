@@ -1,15 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import {
-  Scale,
-  Info,
-  TrendingUp,
-  AlertTriangle,
-  FileCheck,
-  UserCheck,
-  Check,
-} from "lucide-react";
+import { Check } from "lucide-react";
 import { useTour } from "@/hooks/useTour";
 
 interface WelcomeModalProps {
@@ -18,8 +10,6 @@ interface WelcomeModalProps {
 
 const infoItems = [
   {
-    icon: TrendingUp,
-    iconColor: "#8B5CF6",
     title: "Natureza das Análises Preditivas",
     description: (
       <>
@@ -32,8 +22,6 @@ const infoItems = [
     ),
   },
   {
-    icon: AlertTriangle,
-    iconColor: "#F59E0B",
     title: "Limitações e Responsabilidade",
     description: (
       <>
@@ -46,8 +34,6 @@ const infoItems = [
     ),
   },
   {
-    icon: FileCheck,
-    iconColor: "#10B981",
     title: "Ferramenta de Apoio à Decisão",
     description: (
       <>
@@ -64,8 +50,6 @@ const infoItems = [
     ),
   },
   {
-    icon: UserCheck,
-    iconColor: "#3B82F6",
     title: "Uso Profissional Responsável",
     description: (
       <>
@@ -119,25 +103,20 @@ export default function WelcomeModal({ onAccept }: WelcomeModalProps) {
       >
         {/* Header */}
         <div
-          className="p-6 flex items-center gap-4"
+          className="p-6"
           style={{
             background: "linear-gradient(135deg, #1C398E 0%, #193CB8 100%)",
           }}
         >
-          <div className="p-3 bg-white/20 rounded-xl">
-            <Scale className="w-12 h-12 text-white" strokeWidth={1.5} />
-          </div>
-          <div>
-            <h2
-              id="modal-title"
-              className="text-white text-2xl font-semibold"
-            >
-              Bem-vindo à Juriscan
-            </h2>
-            <p className="text-light-blue text-sm mt-1">
-              Plataforma de Jurimetria e Análise Estratégica
-            </p>
-          </div>
+          <h2
+            id="modal-title"
+            className="text-white text-2xl font-semibold"
+          >
+            Bem-vindo à Juriscan
+          </h2>
+          <p className="text-light-blue text-sm mt-1">
+            Plataforma de Jurimetria e Análise Estratégica
+          </p>
         </div>
 
         {/* Body */}
@@ -148,43 +127,25 @@ export default function WelcomeModal({ onAccept }: WelcomeModalProps) {
         >
           {/* Alert Box */}
           <div className="bg-gray-50 dark:bg-white/[0.04] rounded-xl p-4 mb-6">
-            <div className="flex items-start gap-3">
-              <div className="p-2 bg-blue-50 dark:bg-[#1a4fd6]/20 rounded-lg">
-                <Info className="w-5 h-5 text-[#3B82F6] dark:text-[#7aa6ff]" />
-              </div>
-              <div>
-                <h3 className="text-gray-800 dark:text-white font-semibold">
-                  Informação Importante sobre as Análises
-                </h3>
-                <p className="text-gray-500 dark:text-white/60 text-sm mt-1">
-                  Antes de utilizar a plataforma, é fundamental compreender a
-                  natureza e as limitações das análises fornecidas.
-                </p>
-              </div>
-            </div>
+            <h3 className="text-gray-800 dark:text-white font-semibold">
+              Informação Importante sobre as Análises
+            </h3>
+            <p className="text-gray-500 dark:text-white/60 text-sm mt-1">
+              Antes de utilizar a plataforma, é fundamental compreender a
+              natureza e as limitações das análises fornecidas.
+            </p>
           </div>
 
           {/* Info Items */}
           <div className="space-y-5">
             {infoItems.map((item, index) => (
-              <div key={index} className="flex items-start gap-3">
-                <div
-                  className="p-2 rounded-lg flex-shrink-0"
-                  style={{ backgroundColor: `${item.iconColor}15` }}
-                >
-                  <item.icon
-                    className="w-5 h-5"
-                    style={{ color: item.iconColor }}
-                  />
-                </div>
-                <div>
-                  <h4 className="text-gray-800 dark:text-white font-semibold text-sm">
-                    {item.title}
-                  </h4>
-                  <p className="text-gray-600 dark:text-white/75 text-sm mt-1 leading-relaxed">
-                    {item.description}
-                  </p>
-                </div>
+              <div key={index}>
+                <h4 className="text-gray-800 dark:text-white font-semibold text-sm">
+                  {item.title}
+                </h4>
+                <p className="text-gray-600 dark:text-white/75 text-sm mt-1 leading-relaxed">
+                  {item.description}
+                </p>
               </div>
             ))}
           </div>
