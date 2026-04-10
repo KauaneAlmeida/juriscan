@@ -4,6 +4,7 @@ import { useState, useCallback, useRef } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Message } from "./useConversations";
 import type { ChatAttachment } from "@/types/chat";
+import type { TomDeResposta } from "@/types/chatTone";
 import { calculateChatCost } from "@/lib/credits/costs";
 
 interface UseChatOptions {
@@ -12,11 +13,13 @@ interface UseChatOptions {
 }
 
 interface StreamEvent {
-  type: "init" | "chunk" | "done" | "error";
+  type: "init" | "chunk" | "done" | "error" | "tool_use";
   content?: string;
   conversationId?: string;
   creditCost?: number;
   error?: string;
+  persistedContent?: string;
+  tool?: string;
 }
 
 // Extensão do tipo Message para incluir attachments
@@ -24,7 +27,11 @@ interface MessageWithAttachments extends Message {
   attachments?: ChatAttachment[];
 }
 
-const TIMEOUT_MS = 60000; // 60 segundos
+// 180s (3min). Respostas longas do Claude Opus 4.6 com tool_use
+// (busca de jurisprudência) + análise podem facilmente passar de 60s.
+// O limite anterior de 60s causava cancelamento no meio do streaming
+// e resposta "parando" misteriosamente sem persistir nada.
+const TIMEOUT_MS = 180000;
 
 export function useChat({ conversationId, onConversationCreated }: UseChatOptions) {
   const [isStreaming, setIsStreaming] = useState(false);
@@ -35,7 +42,7 @@ export function useChat({ conversationId, onConversationCreated }: UseChatOption
   const readerRef = useRef<ReadableStreamDefaultReader<Uint8Array> | null>(null);
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const cancelledRef = useRef(false);
-  const lastMessageRef = useRef<{ content: string; attachments: ChatAttachment[] } | null>(null);
+  const lastMessageRef = useRef<{ content: string; attachments: ChatAttachment[]; tom?: TomDeResposta } | null>(null);
   const optimisticMessagesRef = useRef<MessageWithAttachments[]>([]);
   const queryClient = useQueryClient();
 
@@ -44,11 +51,11 @@ export function useChat({ conversationId, onConversationCreated }: UseChatOption
   }, []);
 
   const sendMessage = useCallback(
-    async (content: string, attachments: ChatAttachment[] = []) => {
+    async (content: string, attachments: ChatAttachment[] = [], tom?: TomDeResposta) => {
       if ((!content.trim() && attachments.length === 0) || isStreaming) return;
 
       // Salvar para retry
-      lastMessageRef.current = { content, attachments };
+      lastMessageRef.current = { content, attachments, tom };
 
       setError(null);
       setIsStreaming(true);
@@ -115,6 +122,7 @@ export function useChat({ conversationId, onConversationCreated }: UseChatOption
             ...(conversationId && { conversationId }),
             message: content,
             attachments,
+            ...(tom && { tom }),
           }),
         });
 
@@ -287,13 +295,17 @@ export function useChat({ conversationId, onConversationCreated }: UseChatOption
         optimisticMessagesRef.current = [];
         setOptimisticMessages([]);
 
+        // Id efetivo da conversa — pode ter sido criada antes do erro
+        const effectiveConvId = conversationId;
+
         if (cancelledRef.current) {
           // Timeout ou cancelamento manual pelo usuário
           setError("A resposta demorou muito. Tente novamente.");
-          // Remover a mensagem placeholder do assistente
-          if (conversationId) {
+          if (effectiveConvId) {
+            // Remove placeholder local e refetcha do banco (backend persistiu
+            // a mensagem de erro no catch do stream, então o refetch traz ela).
             queryClient.setQueryData(
-              ["conversation", conversationId],
+              ["conversation", effectiveConvId],
               (old: { conversation: unknown; messages: MessageWithAttachments[] } | undefined) => {
                 if (!old) return old;
                 const messages = old.messages.filter(
@@ -302,16 +314,18 @@ export function useChat({ conversationId, onConversationCreated }: UseChatOption
                 return { ...old, messages };
               }
             );
+            queryClient.invalidateQueries({ queryKey: ["conversation", effectiveConvId] });
           }
           return;
         }
         console.error("Chat error:", err);
         setError(err instanceof Error ? err.message : "Erro desconhecido. Tente novamente.");
 
-        // Remover mensagem placeholder vazia do assistente em caso de erro
-        if (conversationId) {
+        // Remover mensagem placeholder vazia do assistente e refetchar pro cliente
+        // sincronizar com o que o backend persistiu (resposta parcial + marker de erro).
+        if (effectiveConvId) {
           queryClient.setQueryData(
-            ["conversation", conversationId],
+            ["conversation", effectiveConvId],
             (old: { conversation: unknown; messages: MessageWithAttachments[] } | undefined) => {
               if (!old) return old;
               const messages = old.messages.filter(
@@ -320,6 +334,9 @@ export function useChat({ conversationId, onConversationCreated }: UseChatOption
               return { ...old, messages };
             }
           );
+          queryClient.invalidateQueries({ queryKey: ["conversation", effectiveConvId] });
+          queryClient.invalidateQueries({ queryKey: ["conversations"] });
+          queryClient.invalidateQueries({ queryKey: ["credits"] });
         }
       } finally {
         if (timeoutRef.current) {
@@ -355,8 +372,8 @@ export function useChat({ conversationId, onConversationCreated }: UseChatOption
       );
     }
 
-    const { content, attachments } = lastMessageRef.current;
-    await sendMessage(content, attachments);
+    const { content, attachments, tom } = lastMessageRef.current;
+    await sendMessage(content, attachments, tom);
   }, [conversationId, queryClient, sendMessage]);
 
   const cancelStream = useCallback(() => {

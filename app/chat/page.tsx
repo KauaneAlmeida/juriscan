@@ -23,11 +23,16 @@ import ChatEmptyState from "@/components/ChatEmptyState";
 import LegalDisclaimerInline from "@/components/LegalDisclaimerInline";
 import ThemeToggle from "@/components/ThemeToggle";
 import { ChatAttachmentPreview, AudioRecorder, TypingIndicator } from "@/components/Chat";
+import TomDeRespostaSelector from "@/components/Chat/TomDeRespostaSelector";
 import { useConversations, useConversation } from "@/hooks/useConversations";
 import { useChat } from "@/hooks/useChat";
 import { useCredits } from "@/hooks/useCredits";
 import { useChatAttachments } from "@/hooks/useChatAttachments";
 import type { ChatAttachment } from "@/types/chat";
+import type { TomDeResposta } from "@/types/chatTone";
+
+const TONS_VALIDOS: TomDeResposta[] = ["formal", "humanizado", "executivo", "minuta"];
+const TOM_STORAGE_KEY = "juriscan_tom_preferido";
 
 function ChatContent() {
   const router = useRouter();
@@ -42,11 +47,15 @@ function ChatContent() {
   const [showConversations, setShowConversations] = useState(false);
   const [showAttachMenu, setShowAttachMenu] = useState(false);
   const [isRecordingAudio, setIsRecordingAudio] = useState(false);
+  const [tomAtual, setTomAtual] = useState<TomDeResposta>("formal");
 
   const inputRef = useRef<HTMLInputElement>(null);
   const chatContainerRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const imageInputRef = useRef<HTMLInputElement>(null);
+  // Sticky-to-bottom: só auto-scrolla se o usuário já estava no fundo.
+  // Assim que ele rolar pra cima, a rolagem automática para de forçar.
+  const isAtBottomRef = useRef(true);
 
   const { conversations, isLoading: isLoadingConversations, deleteConversation } =
     useConversations();
@@ -76,13 +85,43 @@ function ChatContent() {
 
   useEffect(() => {
     setMounted(true);
+    try {
+      const saved = localStorage.getItem(TOM_STORAGE_KEY) as TomDeResposta | null;
+      if (saved && TONS_VALIDOS.includes(saved)) {
+        setTomAtual(saved);
+      }
+    } catch {
+      // localStorage indisponível — mantém o default
+    }
   }, []);
+
+  const handleTomChange = (tom: TomDeResposta) => {
+    setTomAtual(tom);
+    try {
+      localStorage.setItem(TOM_STORAGE_KEY, tom);
+    } catch {
+      // ignora falha de persistência
+    }
+  };
 
   useEffect(() => {
     setCurrentConversationId(conversationIdParam);
   }, [conversationIdParam]);
 
+  // Detecta se o usuário está no fundo do chat (com tolerância de 80px
+  // pra funcionar mesmo com conteúdo streamando novos chunks).
+  const handleChatScroll = () => {
+    const el = chatContainerRef.current;
+    if (!el) return;
+    const distanciaDoFundo = el.scrollHeight - el.scrollTop - el.clientHeight;
+    isAtBottomRef.current = distanciaDoFundo < 80;
+  };
+
   useEffect(() => {
+    // Só auto-scrolla se o usuário estava grudado no fundo.
+    // Assim que ele rolar pra cima, isAtBottomRef vira false e o
+    // streaming de chunks não força mais a rolagem.
+    if (!isAtBottomRef.current) return;
     if (chatContainerRef.current) {
       chatContainerRef.current.scrollTo({
         top: chatContainerRef.current.scrollHeight,
@@ -90,6 +129,14 @@ function ChatContent() {
       });
     }
   }, [messages, optimisticMessages, isWaiting]);
+
+  // Quando o usuário envia uma mensagem nova, força um reset pro fundo
+  // mesmo que ele estivesse rolado pra cima lendo algo antigo.
+  useEffect(() => {
+    if (isStreaming || isWaiting) {
+      isAtBottomRef.current = true;
+    }
+  }, [isStreaming, isWaiting]);
 
   useEffect(() => {
     const handleClickOutside = () => setShowAttachMenu(false);
@@ -133,7 +180,7 @@ function ChatContent() {
       uploadedAttachments = await uploadAttachments();
     }
 
-    sendMessage(text, uploadedAttachments);
+    sendMessage(text, uploadedAttachments, tomAtual);
     setInputValue("");
     clearAttachments();
   };
@@ -191,7 +238,15 @@ function ChatContent() {
   };
 
   const displayMessages = messages.length > 0 ? messages : optimisticMessages;
-  const showSuggestions = displayMessages.length === 0 && attachments.length === 0 && !isStreaming;
+  // Só mostra o empty state quando é uma conversa nova (sem id) E nada está
+  // carregando. Durante refetches ou troca de conversa, preserva a UI anterior
+  // para não "flashear" os cards de sugestão.
+  const showSuggestions =
+    currentConversationId === null &&
+    displayMessages.length === 0 &&
+    attachments.length === 0 &&
+    !isStreaming &&
+    !isLoadingMessages;
   const hasAttachments = attachments.length > 0;
 
   // Título da conversa atual (usado como hint do nome do arquivo na exportação por mensagem)
@@ -337,6 +392,7 @@ function ChatContent() {
         {/* Chat Area */}
         <main
           ref={chatContainerRef}
+          onScroll={handleChatScroll}
           className="flex-1 p-4 sm:p-6 pb-6 overflow-y-auto"
           aria-label="Histórico de mensagens"
         >
@@ -529,6 +585,13 @@ function ChatContent() {
                   onPaste={handlePaste}
                   placeholder="Descreva o caso ou faça uma pergunta..."
                   className="flex-1 min-w-0 bg-transparent border-none outline-none text-base lg:text-sm text-gray-800 dark:text-white placeholder-gray-400 dark:placeholder-white/40"
+                  disabled={isStreaming || isUploading}
+                />
+
+                {/* Tom de Resposta Selector — chip à esquerda do mic */}
+                <TomDeRespostaSelector
+                  tomAtual={tomAtual}
+                  onChange={handleTomChange}
                   disabled={isStreaming || isUploading}
                 />
 

@@ -27,6 +27,7 @@ export const chatMessageSchema = z.object({
   conversationId: z.string().uuid().optional(),
   message: z.string().max(10000, "Mensagem muito longa").default(""),
   attachments: z.array(attachmentSchema).max(5).optional().default([]),
+  tom: z.enum(["formal", "humanizado", "executivo", "minuta"]).optional(),
 }).refine(
   (data) => data.message.trim().length > 0 || (data.attachments && data.attachments.length > 0),
   { message: "Mensagem ou anexo é obrigatório" }

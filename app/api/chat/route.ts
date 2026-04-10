@@ -7,7 +7,10 @@ import { deductCredits } from "@/services/credit.service";
 import { calculateChatCost } from "@/lib/credits/costs";
 import { dbInsertAndSelect, dbInsert, dbUpdateQuery } from "@/lib/supabase/db";
 import type { ChatAttachment } from "@/types/chat";
+import { TONS_DE_RESPOSTA, type TomDeResposta } from "@/types/chatTone";
 import { createAnalyzeCaseUseCase, type EnrichedContext } from "@/src/application/use-cases/chat/AnalyzeCaseUseCase";
+import { CHAT_TOOLS } from "@/lib/chatTools";
+import { buscarJurisprudencia } from "@/lib/datajud";
 import type Anthropic from "@anthropic-ai/sdk";
 
 // Force dynamic rendering for authenticated routes
@@ -104,15 +107,86 @@ function buildMessageContent(
   return parts;
 }
 
+// Executa uma tool call do Claude e devolve o resultado serializado
+// como string (Anthropic exige content do tool_result em string ou
+// array de blocos). Cada tool tem seu proprio handler.
+async function executeChatTool(
+  toolName: string,
+  toolInput: Record<string, unknown>
+): Promise<string> {
+  if (toolName === "buscar_jurisprudencia") {
+    try {
+      const dados = await buscarJurisprudencia({
+        tema: String(toolInput.tema || ""),
+        tribunal: String(toolInput.tribunal || ""),
+        quantidade:
+          typeof toolInput.quantidade === "number"
+            ? toolInput.quantidade
+            : undefined,
+        dataInicio:
+          typeof toolInput.dataInicio === "string"
+            ? toolInput.dataInicio
+            : undefined,
+      });
+
+      if (dados.resultados.length === 0) {
+        return JSON.stringify({
+          sucesso: false,
+          mensagem: `Nenhuma decisao encontrada no ${dados.tribunal} sobre "${dados.tema}".`,
+          sugestao:
+            "Tente reformular o tema com palavras mais especificas ou consulte outro tribunal.",
+        });
+      }
+
+      return JSON.stringify(
+        {
+          sucesso: true,
+          tribunal: dados.tribunal,
+          tema: dados.tema,
+          totalEncontrado: dados.total,
+          decisoes: dados.resultados.map((r, i) => ({
+            numero: i + 1,
+            processo: r.numeroProcesso,
+            data: r.dataJulgamento,
+            orgao: r.orgaoJulgador,
+            relator: r.relator,
+            classe: r.classe,
+            ementa: r.ementa,
+          })),
+        },
+        null,
+        2
+      );
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Erro desconhecido";
+      console.error("[chat] Tool buscar_jurisprudencia falhou:", message);
+      return JSON.stringify({
+        sucesso: false,
+        erro: message,
+        sugestao:
+          "Informe ao usuario que houve erro ao consultar a base do CNJ e sugira que tente novamente em alguns instantes.",
+      });
+    }
+  }
+
+  return JSON.stringify({ erro: `Ferramenta desconhecida: ${toolName}` });
+}
+
 // POST /api/chat - Send message and get AI response with streaming
 export const POST = apiHandler(async (request, { user }) => {
   const supabase = await createServerSupabaseClient();
 
   // Validate request body
-  const { conversationId, message, attachments = [] } = await parseBody(
+  const { conversationId, message, attachments = [], tom } = await parseBody(
     request,
     chatMessageSchema
   );
+
+  // Resolve a instrução do tom selecionado (default = formal)
+  const tomConfig =
+    TONS_DE_RESPOSTA.find((t) => t.id === (tom as TomDeResposta | undefined)) ??
+    TONS_DE_RESPOSTA[0];
+  const instrucaoTom = tomConfig.instrucao;
 
   // Debug: logar attachments recebidos
   if (attachments.length > 0) {
@@ -192,9 +266,45 @@ export const POST = apiHandler(async (request, { user }) => {
   // Create streaming response — send "init" immediately, then do heavy work inside the stream
   const encoder = new TextEncoder();
   let fullResponse = "";
+  // Flag que vira true assim que o cliente desconecta ou o controller
+  // é fechado por qualquer motivo. Curto-circuita o loop de streaming
+  // para evitar "Invalid state: Controller is already closed" e
+  // para parar o consumo desnecessário de tokens do Claude.
+  let streamClosed = false;
+
+  // Detecta desconexão do cliente (ex: usuário fecha a aba, reader
+  // cancelado pelo timeout do cliente). Quando isso acontece o loop
+  // do Anthropic é interrompido cedo no próximo tick.
+  request.signal.addEventListener("abort", () => {
+    streamClosed = true;
+  });
 
   const stream = new ReadableStream({
     async start(controller) {
+      // Helper seguro pra enfileirar eventos SSE. Se o controller já
+      // foi fechado (cliente desconectou), seta o flag e engole o erro
+      // em vez de crashar o stream inteiro.
+      const safeEnqueue = (data: string): boolean => {
+        if (streamClosed) return false;
+        try {
+          controller.enqueue(encoder.encode(data));
+          return true;
+        } catch {
+          streamClosed = true;
+          return false;
+        }
+      };
+
+      const safeClose = () => {
+        if (streamClosed) return;
+        streamClosed = true;
+        try {
+          controller.close();
+        } catch {
+          // já fechado
+        }
+      };
+
       try {
         // Send init event immediately so client gets conversationId early
         const initChunk = JSON.stringify({
@@ -202,7 +312,7 @@ export const POST = apiHandler(async (request, { user }) => {
           conversationId: actualConversationId,
           creditCost,
         });
-        controller.enqueue(encoder.encode(`data: ${initChunk}\n\n`));
+        safeEnqueue(`data: ${initChunk}\n\n`);
 
         // Analisar última mensagem para extrair entidades e buscar dados jurídicos
         // This runs INSIDE the stream so it doesn't block the first SSE event
@@ -223,9 +333,15 @@ export const POST = apiHandler(async (request, { user }) => {
         }
 
         // Format messages for Anthropic Claude
-        const systemPrompt = enrichedContext?.contexto_prompt
+        const baseSystemPrompt = enrichedContext?.contexto_prompt
           ? LEGAL_SYSTEM_PROMPT + "\n\n" + enrichedContext.contexto_prompt
           : LEGAL_SYSTEM_PROMPT;
+
+        // Concatena a instrução do tom no final, sem substituir o prompt base.
+        const systemPrompt = `${baseSystemPrompt}
+
+ESTILO DE RESPOSTA PARA ESTA MENSAGEM:
+${instrucaoTom}`;
 
         // Build messages array (Anthropic: no system message in array, only user/assistant)
         const formattedMessages: Anthropic.MessageParam[] = [];
@@ -239,33 +355,177 @@ export const POST = apiHandler(async (request, { user }) => {
           formattedMessages.push({ role, content });
         }
 
-        // Call Anthropic Claude with streaming (for await pattern for serverless compatibility)
+        // Call Anthropic Claude with streaming + tools.
+        // O loop abaixo trata o ciclo de tool use: enquanto o Claude pedir
+        // tool_use, executamos a tool, anexamos o resultado e fazemos uma
+        // nova rodada — tudo dentro do mesmo SSE stream para o cliente.
         const claude = getClaude();
-        const anthropicStream = await claude.messages.create({
-          model: AI_CONFIG.model,
-          max_tokens: AI_CONFIG.maxTokens,
-          temperature: AI_CONFIG.temperature,
-          system: systemPrompt,
-          messages: formattedMessages,
-          stream: true,
-        });
+        const workingMessages: Anthropic.MessageParam[] = [...formattedMessages];
 
-        for await (const event of anthropicStream) {
-          if (
-            event.type === "content_block_delta" &&
-            event.delta.type === "text_delta"
-          ) {
-            const text = event.delta.text;
-            fullResponse += text;
+        // Limite defensivo de iteracoes para evitar loops infinitos caso
+        // o modelo entre num ciclo de chamadas a tool. 4 e folgado: a
+        // pratica esperada e 1 (sem tool) ou 2 (uma tool call).
+        const MAX_TOOL_ITERATIONS = 4;
+        let stopReason: Anthropic.Message["stop_reason"] | null = null;
 
-            // Send chunk to client
-            const data = JSON.stringify({
-              type: "chunk",
-              content: text,
+        for (let iteration = 0; iteration < MAX_TOOL_ITERATIONS; iteration++) {
+          const anthropicStream = await claude.messages.create({
+            model: AI_CONFIG.model,
+            max_tokens: AI_CONFIG.maxTokens,
+            temperature: AI_CONFIG.temperature,
+            system: systemPrompt,
+            messages: workingMessages,
+            tools: CHAT_TOOLS,
+            stream: true,
+          });
+
+          // Acumulamos os blocos de conteudo desta iteracao para
+          // remontar a "assistant message" que vai entrar no historico
+          // do proximo turno (necessario para o tool_use round-trip).
+          const assistantBlocks: Anthropic.ContentBlock[] = [];
+          // Mapa indice -> rascunho do tool_use sendo construido via deltas.
+          const toolUseDrafts: Map<
+            number,
+            { id: string; name: string; jsonBuffer: string }
+          > = new Map();
+          let textBlockDraft = "";
+          let textBlockIndex: number | null = null;
+          stopReason = null;
+
+          for await (const event of anthropicStream) {
+            // Se o cliente desconectou, para de consumir tokens.
+            if (streamClosed) break;
+            if (event.type === "content_block_start") {
+              if (event.content_block.type === "text") {
+                textBlockIndex = event.index;
+                textBlockDraft = "";
+              } else if (event.content_block.type === "tool_use") {
+                toolUseDrafts.set(event.index, {
+                  id: event.content_block.id,
+                  name: event.content_block.name,
+                  jsonBuffer: "",
+                });
+              }
+            } else if (event.type === "content_block_delta") {
+              if (event.delta.type === "text_delta") {
+                const text = event.delta.text;
+                textBlockDraft += text;
+                fullResponse += text;
+                const data = JSON.stringify({
+                  type: "chunk",
+                  content: text,
+                  conversationId: actualConversationId,
+                });
+                safeEnqueue(`data: ${data}\n\n`);
+              } else if (event.delta.type === "input_json_delta") {
+                const draft = toolUseDrafts.get(event.index);
+                if (draft) {
+                  draft.jsonBuffer += event.delta.partial_json;
+                }
+              }
+            } else if (event.type === "content_block_stop") {
+              if (textBlockIndex === event.index && textBlockDraft) {
+                assistantBlocks.push({
+                  type: "text",
+                  text: textBlockDraft,
+                  citations: null,
+                } as Anthropic.TextBlock);
+                textBlockDraft = "";
+                textBlockIndex = null;
+              } else if (toolUseDrafts.has(event.index)) {
+                const draft = toolUseDrafts.get(event.index)!;
+                let parsedInput: Record<string, unknown> = {};
+                try {
+                  parsedInput = draft.jsonBuffer
+                    ? JSON.parse(draft.jsonBuffer)
+                    : {};
+                } catch (parseErr) {
+                  console.error(
+                    "[chat] Falha ao parsear tool input JSON:",
+                    parseErr,
+                    draft.jsonBuffer
+                  );
+                }
+                assistantBlocks.push({
+                  type: "tool_use",
+                  id: draft.id,
+                  name: draft.name,
+                  input: parsedInput,
+                } as Anthropic.ToolUseBlock);
+              }
+            } else if (event.type === "message_delta") {
+              if (event.delta.stop_reason) {
+                stopReason = event.delta.stop_reason;
+              }
+            }
+          }
+
+          // Se nenhuma tool foi chamada, a resposta esta completa.
+          if (stopReason !== "tool_use") {
+            break;
+          }
+
+          // Sinaliza ao cliente que estamos consultando dados — assim a
+          // UI pode mostrar um indicador "buscando jurisprudencia..." em
+          // vez de parecer travada enquanto a tool roda.
+          const toolUseBlocks = assistantBlocks.filter(
+            (b): b is Anthropic.ToolUseBlock => b.type === "tool_use"
+          );
+          for (const tb of toolUseBlocks) {
+            const notice = JSON.stringify({
+              type: "tool_use",
+              tool: tb.name,
               conversationId: actualConversationId,
             });
-            controller.enqueue(encoder.encode(`data: ${data}\n\n`));
+            safeEnqueue(`data: ${notice}\n\n`);
           }
+
+          // Anexa a mensagem do assistente (com tool_use) e roda as tools.
+          workingMessages.push({
+            role: "assistant",
+            content: assistantBlocks,
+          });
+
+          const toolResults: Anthropic.ToolResultBlockParam[] = [];
+          for (const tb of toolUseBlocks) {
+            const result = await executeChatTool(
+              tb.name,
+              tb.input as Record<string, unknown>
+            );
+            toolResults.push({
+              type: "tool_result",
+              tool_use_id: tb.id,
+              content: result,
+            });
+          }
+
+          workingMessages.push({
+            role: "user",
+            content: toolResults,
+          });
+
+          // Loop continua para a proxima iteracao com os resultados.
+        }
+
+        if (stopReason === "tool_use") {
+          console.warn(
+            "[chat] Limite de iteracoes de tool use atingido sem resposta final"
+          );
+        }
+
+        // Se a resposta foi cortada por limite de tokens, avisa o usuário
+        // com um marker no final. Isso é streamado como chunk pra aparecer
+        // em tempo real, e persistido junto com a resposta.
+        if (stopReason === "max_tokens") {
+          const marker =
+            '\n\n---\n\n_⚠️ Resposta truncada por limite de tamanho. Peça "continue" para ver o restante._';
+          fullResponse += marker;
+          const markerChunk = JSON.stringify({
+            type: "chunk",
+            content: marker,
+            conversationId: actualConversationId,
+          });
+          safeEnqueue(`data: ${markerChunk}\n\n`);
         }
 
         // Save assistant message to database
@@ -287,8 +547,8 @@ export const POST = apiHandler(async (request, { user }) => {
           type: "done",
           conversationId: actualConversationId,
         });
-        controller.enqueue(encoder.encode(`data: ${doneChunk}\n\n`));
-        controller.close();
+        safeEnqueue(`data: ${doneChunk}\n\n`);
+        safeClose();
       } catch (error) {
         console.error("Streaming error:", error instanceof Error ? { message: error.message, name: error.name, stack: error.stack } : error);
 
@@ -302,12 +562,38 @@ export const POST = apiHandler(async (request, { user }) => {
           errorMessage = "Serviço temporariamente indisponível. Tente novamente em alguns instantes.";
         }
 
+        // Persiste o que conseguimos streamar, mesmo em caso de falha.
+        // Assim: (a) a UI pode recarregar e ver a resposta parcial;
+        // (b) a mensagem do usuário não fica órfã sem contrapartida da IA;
+        // (c) evita o bug de "a resposta some pra sempre" que acontecia
+        // quando o stream morria antes do dbInsert.
+        const partialContent = fullResponse.trim();
+        const contentToPersist = partialContent
+          ? `${partialContent}\n\n---\n\n⚠️ _${errorMessage}_`
+          : `⚠️ ${errorMessage}`;
+
+        try {
+          await dbInsert(supabase, "messages", {
+            conversation_id: actualConversationId,
+            role: "ASSISTANT",
+            content: contentToPersist,
+            attachments: [],
+            credits_cost: creditCost,
+          });
+          await dbUpdateQuery(supabase, "conversations", {
+            updated_at: new Date().toISOString(),
+          }).eq("id", actualConversationId!);
+        } catch (persistError) {
+          console.error("[chat] Falha ao persistir mensagem de erro:", persistError);
+        }
+
         const errorChunk = JSON.stringify({
           type: "error",
           error: errorMessage,
+          persistedContent: contentToPersist,
         });
-        controller.enqueue(encoder.encode(`data: ${errorChunk}\n\n`));
-        controller.close();
+        safeEnqueue(`data: ${errorChunk}\n\n`);
+        safeClose();
       }
     },
   });
