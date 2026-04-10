@@ -3,7 +3,12 @@
 import { Scale, Coins } from "lucide-react";
 import { MarkdownRenderer } from "./Chat/MarkdownRenderer";
 import type { ChatAttachment } from "@/types/chat";
-import { ChatFileMessage, ChatImageMessage, ChatAudioMessage } from "./Chat";
+import {
+  ChatFileMessage,
+  ChatImageMessage,
+  ChatAudioMessage,
+  MessageExportMenu,
+} from "./Chat";
 
 interface ChatMessageProps {
   type: "assistant" | "user";
@@ -11,6 +16,10 @@ interface ChatMessageProps {
   timestamp: string;
   attachments?: ChatAttachment[];
   creditsCost?: number | null;
+  /** ISO date para a exportação da mensagem (apenas assistente). */
+  createdAt?: string;
+  /** Título da conversa, usado como hint do nome do arquivo exportado. */
+  conversationTitle?: string | null;
 }
 
 function CreditBadge({ cost }: { cost: number }) {
@@ -42,6 +51,8 @@ export default function ChatMessage({
   timestamp,
   attachments = [],
   creditsCost,
+  createdAt,
+  conversationTitle,
 }: ChatMessageProps) {
   const hasAttachments = attachments.length > 0;
 
@@ -92,9 +103,19 @@ export default function ChatMessage({
             </div>
           )}
         </div>
-        <div className="flex items-center gap-2 mt-1.5">
+        <div className="flex items-center gap-3 mt-1.5">
           <p className="text-xs text-gray-400 dark:text-white/45">{timestamp}</p>
           {creditsCost != null && creditsCost > 0 && <CreditBadge cost={creditsCost} />}
+          {content && createdAt && (
+            <MessageExportMenu
+              message={{
+                content,
+                createdAt,
+                conversationTitle: conversationTitle ?? null,
+              }}
+              filenameHint={conversationTitle ?? "resposta"}
+            />
+          )}
         </div>
       </div>
     </div>

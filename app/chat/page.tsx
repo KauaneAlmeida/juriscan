@@ -194,6 +194,11 @@ function ChatContent() {
   const showSuggestions = displayMessages.length === 0 && attachments.length === 0 && !isStreaming;
   const hasAttachments = attachments.length > 0;
 
+  // Título da conversa atual (usado como hint do nome do arquivo na exportação por mensagem)
+  const currentConversationTitle = currentConversationId
+    ? conversations.find((c) => c.id === currentConversationId)?.title ?? null
+    : null;
+
   if (!mounted) return null;
 
   return (
@@ -389,6 +394,8 @@ function ChatContent() {
                   })}
                   attachments={(message as { attachments?: ChatAttachment[] }).attachments}
                   creditsCost={(message as { credits_cost?: number | null }).credits_cost}
+                  createdAt={message.created_at}
+                  conversationTitle={currentConversationTitle}
                 />
               ))
           )}
