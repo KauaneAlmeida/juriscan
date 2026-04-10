@@ -19,6 +19,12 @@ export async function deductCredits(
   description: string = "Uso de créditos",
   transactionType: TransactionType = "ANALYSIS_DEBIT"
 ): Promise<DeductCreditsResult> {
+  // Kill-switch para testes: quando DISABLE_CREDITS=true, nada é debitado
+  // e o retorno simula sucesso para liberar todas as operações pagas.
+  if (process.env.DISABLE_CREDITS === "true") {
+    return { success: true };
+  }
+
   const { data, error } = await supabase.rpc("deduct_credits", {
     p_user_id: userId,
     p_amount: amount,
