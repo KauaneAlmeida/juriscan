@@ -42,6 +42,9 @@ export function useChat({ conversationId, onConversationCreated }: UseChatOption
   const readerRef = useRef<ReadableStreamDefaultReader<Uint8Array> | null>(null);
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const cancelledRef = useRef(false);
+  // True quando o usuário apertou o botão parar (não é timeout nem erro).
+  // Usado pra não mostrar mensagem de erro confusa e pra preservar o parcial.
+  const manuallyCancelledRef = useRef(false);
   const lastMessageRef = useRef<{ content: string; attachments: ChatAttachment[]; tom?: TomDeResposta } | null>(null);
   const optimisticMessagesRef = useRef<MessageWithAttachments[]>([]);
   const queryClient = useQueryClient();
@@ -56,6 +59,10 @@ export function useChat({ conversationId, onConversationCreated }: UseChatOption
 
       // Salvar para retry
       lastMessageRef.current = { content, attachments, tom };
+
+      // Reseta flags de cancelamento pra nova requisição
+      cancelledRef.current = false;
+      manuallyCancelledRef.current = false;
 
       setError(null);
       setIsStreaming(true);
@@ -298,12 +305,33 @@ export function useChat({ conversationId, onConversationCreated }: UseChatOption
         // Id efetivo da conversa — pode ter sido criada antes do erro
         const effectiveConvId = conversationId;
 
+        if (manuallyCancelledRef.current) {
+          // Cancelamento explícito pelo usuário (botão parar).
+          // Não mostra erro — só sincroniza com o backend, que já persistiu
+          // o parcial via safeEnqueue quando detectou streamClosed.
+          if (effectiveConvId) {
+            queryClient.setQueryData(
+              ["conversation", effectiveConvId],
+              (old: { conversation: unknown; messages: MessageWithAttachments[] } | undefined) => {
+                if (!old) return old;
+                // Remove placeholder vazio caso nem um chunk tenha chegado
+                const messages = old.messages.filter(
+                  (m) => !(m.role === "ASSISTANT" && !m.content)
+                );
+                return { ...old, messages };
+              }
+            );
+            queryClient.invalidateQueries({ queryKey: ["conversation", effectiveConvId] });
+            queryClient.invalidateQueries({ queryKey: ["conversations"] });
+            queryClient.invalidateQueries({ queryKey: ["credits"] });
+          }
+          return;
+        }
+
         if (cancelledRef.current) {
-          // Timeout ou cancelamento manual pelo usuário
+          // Timeout do cliente (180s) — mensagem explícita de timeout
           setError("A resposta demorou muito. Tente novamente.");
           if (effectiveConvId) {
-            // Remove placeholder local e refetcha do banco (backend persistiu
-            // a mensagem de erro no catch do stream, então o refetch traz ela).
             queryClient.setQueryData(
               ["conversation", effectiveConvId],
               (old: { conversation: unknown; messages: MessageWithAttachments[] } | undefined) => {
@@ -348,6 +376,7 @@ export function useChat({ conversationId, onConversationCreated }: UseChatOption
         setStreamingContent("");
         readerRef.current = null;
         cancelledRef.current = false;
+        manuallyCancelledRef.current = false;
       }
     },
     [conversationId, isStreaming, isWaiting, onConversationCreated, queryClient]
@@ -378,6 +407,7 @@ export function useChat({ conversationId, onConversationCreated }: UseChatOption
 
   const cancelStream = useCallback(() => {
     cancelledRef.current = true;
+    manuallyCancelledRef.current = true;
     readerRef.current?.cancel();
   }, []);
 

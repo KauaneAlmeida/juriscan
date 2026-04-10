@@ -8,3 +8,4 @@ export { default as ChatImageMessage } from "./ChatImageMessage";
 export { default as ChatAudioMessage } from "./ChatAudioMessage";
 export { default as TypingIndicator } from "./TypingIndicator";
 export { default as MessageExportMenu } from "./MessageExportMenu";
+export { default as CopyMessageButton } from "./CopyMessageButton";

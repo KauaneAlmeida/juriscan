@@ -6,6 +6,7 @@ import {
   Brain,
   Paperclip,
   Send,
+  Square,
   Plus,
   MessageSquare,
   Trash2,
@@ -61,7 +62,7 @@ function ChatContent() {
     useConversations();
   const { messages, isLoading: isLoadingMessages } = useConversation(currentConversationId);
   const { balance } = useCredits();
-  const { sendMessage, isStreaming, isWaiting, error: chatError, retry, clearError, optimisticMessages } = useChat({
+  const { sendMessage, cancelStream, isStreaming, isWaiting, error: chatError, retry, clearError, optimisticMessages } = useChat({
     conversationId: currentConversationId,
     onConversationCreated: (id) => {
       setCurrentConversationId(id);
@@ -611,24 +612,35 @@ function ChatContent() {
                   <Mic className="w-5 h-5" />
                 </button>
 
-                {/* Send Button */}
-                <button
-                  onClick={() => handleSendMessage()}
-                  disabled={
-                    (!inputValue.trim() && attachments.length === 0) ||
-                    isStreaming ||
-                    isUploading ||
-                    balance < totalCost
-                  }
-                  className="w-11 h-11 bg-primary dark:bg-[#1a4fd6] hover:bg-primary-hover dark:hover:bg-[#1440b8] active:bg-primary-hover disabled:bg-gray-300 dark:disabled:bg-white/[0.08] rounded-full flex items-center justify-center transition-colors flex-shrink-0"
-                  aria-label="Enviar mensagem"
-                >
-                  {isStreaming || isUploading ? (
-                    <Loader2 className="w-4 h-4 text-white animate-spin" />
-                  ) : (
-                    <Send className="w-4 h-4 text-white" />
-                  )}
-                </button>
+                {/* Send/Stop Button — durante streaming vira botão de parar.
+                    Upload usa o loader no botão azul (não é cancelável aqui). */}
+                {(isStreaming || isWaiting) && !isUploading ? (
+                  <button
+                    onClick={cancelStream}
+                    className="w-11 h-11 bg-red-500 hover:bg-red-600 active:bg-red-700 rounded-full flex items-center justify-center transition-colors flex-shrink-0"
+                    aria-label="Parar geração"
+                    title="Parar geração"
+                  >
+                    <Square className="w-3.5 h-3.5 text-white fill-white" />
+                  </button>
+                ) : (
+                  <button
+                    onClick={() => handleSendMessage()}
+                    disabled={
+                      (!inputValue.trim() && attachments.length === 0) ||
+                      isUploading ||
+                      balance < totalCost
+                    }
+                    className="w-11 h-11 bg-primary dark:bg-[#1a4fd6] hover:bg-primary-hover dark:hover:bg-[#1440b8] active:bg-primary-hover disabled:bg-gray-300 dark:disabled:bg-white/[0.08] rounded-full flex items-center justify-center transition-colors flex-shrink-0"
+                    aria-label="Enviar mensagem"
+                  >
+                    {isUploading ? (
+                      <Loader2 className="w-4 h-4 text-white animate-spin" />
+                    ) : (
+                      <Send className="w-4 h-4 text-white" />
+                    )}
+                  </button>
+                )}
               </div>
             )}
 

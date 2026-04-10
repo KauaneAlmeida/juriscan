@@ -8,6 +8,7 @@ import {
   ChatImageMessage,
   ChatAudioMessage,
   MessageExportMenu,
+  CopyMessageButton,
 } from "./Chat";
 
 interface ChatMessageProps {
@@ -106,6 +107,7 @@ export default function ChatMessage({
         <div className="flex items-center gap-3 mt-1.5">
           <p className="text-xs text-gray-400 dark:text-white/45">{timestamp}</p>
           {creditsCost != null && creditsCost > 0 && <CreditBadge cost={creditsCost} />}
+          {content && <CopyMessageButton content={content} />}
           {content && createdAt && (
             <MessageExportMenu
               message={{
