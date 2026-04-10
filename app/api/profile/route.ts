@@ -30,7 +30,27 @@ export const GET = apiHandler(async (_request, { user }) => {
     throw new Error("Erro ao buscar perfil");
   }
 
-  return successResponse({ profile });
+  const response = successResponse({ profile });
+
+  // Self-healing: if the DB confirms the user has an OAB but the
+  // browser is missing the `has_oab` cookie (expired, new device,
+  // cleared cookies), restore it here. This stops the middleware
+  // from looping the user back to /completar-perfil and being
+  // perceived as a logout.
+  if (
+    profile &&
+    typeof (profile as { oab?: string | null }).oab === "string" &&
+    (profile as { oab?: string | null }).oab !== ""
+  ) {
+    response.cookies.set("has_oab", "1", {
+      path: "/",
+      maxAge: 60 * 60 * 24 * 365, // 1 year
+      sameSite: "lax",
+      secure: process.env.NODE_ENV === "production",
+    });
+  }
+
+  return response;
 });
 
 // PATCH /api/profile - Update user profile
@@ -99,5 +119,28 @@ export const PATCH = apiHandler(async (request, { user }) => {
     }
   }
 
-  return successResponse({ profile });
+  const response = successResponse({ profile });
+
+  // If we now know the user has an OAB persisted in the DB, set the
+  // `has_oab` cookie server-side as a long-lived flag. The middleware
+  // uses this cookie as a fallback when the JWT user_metadata hasn't
+  // propagated yet (Supabase only re-issues the JWT on full re-login or
+  // periodic refresh — admin.updateUserById alone doesn't push it to
+  // active sessions). Without this fallback, sessions older than the
+  // previous 24h cookie would be redirected to /completar-perfil and
+  // the user perceives it as being logged out.
+  if (
+    profile &&
+    typeof (profile as { oab?: string | null }).oab === "string" &&
+    (profile as { oab?: string | null }).oab !== ""
+  ) {
+    response.cookies.set("has_oab", "1", {
+      path: "/",
+      maxAge: 60 * 60 * 24 * 365, // 1 year
+      sameSite: "lax",
+      secure: process.env.NODE_ENV === "production",
+    });
+  }
+
+  return response;
 });

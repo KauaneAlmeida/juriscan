@@ -48,7 +48,7 @@ export default function CompletarPerfilPage() {
               const json = await res.json();
               if (json.data?.profile?.oab) {
                 // DB has OAB — set cookie so middleware won't block, then redirect
-                document.cookie = "has_oab=1; path=/; max-age=86400; SameSite=Lax";
+                document.cookie = "has_oab=1; path=/; max-age=31536000; SameSite=Lax";
                 if (mountedRef.current) {
                   clearTimeout(fallbackTimer);
                   window.location.href = "/dashboard";
@@ -111,7 +111,7 @@ export default function CompletarPerfilPage() {
 
       // 2. Set cookie as synchronous fallback so middleware won't redirect
       // back to /completar-perfil even if JWT hasn't propagated yet.
-      document.cookie = "has_oab=1; path=/; max-age=86400; SameSite=Lax";
+      document.cookie = "has_oab=1; path=/; max-age=31536000; SameSite=Lax";
 
       // 3. Best-effort: refresh session so JWT eventually includes oab
       await supabase.auth.refreshSession();
