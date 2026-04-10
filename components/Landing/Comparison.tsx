@@ -47,8 +47,64 @@ export default function Comparison() {
           pelo Juriscan?
         </h2>
 
-        {/* Tabela */}
-        <div className="relative mt-16 pt-4">
+        {/* Mobile: dois cards empilhados (Juriscan em destaque + outras) */}
+        <div className="mt-12 space-y-5 md:hidden">
+          {/* Card Juriscan */}
+          <div className="relative rounded-[14px] border-t-[3px] border-[#f5b800] bg-[#f5b800]/[0.08] p-5">
+            <span className="absolute -top-3 left-5 inline-flex items-center rounded-[20px] bg-[#f5b800] px-2.5 py-1 font-dm-sans text-[10px] font-bold uppercase tracking-wide text-[#0a131c] shadow-[0_4px_12px_rgba(245,184,0,0.35)]">
+              Recomendado
+            </span>
+            <p className="mb-4 mt-2 font-dm-sans text-[16px] font-bold text-white">
+              Juriscan
+            </p>
+            <ul className="space-y-4">
+              {rows.map((row) => (
+                <li key={row.label}>
+                  <p className="mb-1 font-dm-sans text-[11px] font-semibold uppercase tracking-wide text-white/50">
+                    {row.label}
+                  </p>
+                  <div className="flex items-start gap-2">
+                    <Check
+                      className="mt-0.5 h-4 w-4 flex-shrink-0 text-emerald-400"
+                      strokeWidth={2.5}
+                    />
+                    <span className="font-dm-sans text-[14px] font-medium text-white">
+                      {row.juriscan}
+                    </span>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          </div>
+
+          {/* Card Outras ferramentas */}
+          <div className="rounded-[14px] border border-white/[0.06] bg-white/[0.02] p-5">
+            <p className="mb-4 font-dm-sans text-[16px] font-medium text-white/70">
+              Outras ferramentas
+            </p>
+            <ul className="space-y-4">
+              {rows.map((row) => (
+                <li key={row.label}>
+                  <p className="mb-1 font-dm-sans text-[11px] font-semibold uppercase tracking-wide text-white/40">
+                    {row.label}
+                  </p>
+                  <div className="flex items-start gap-2">
+                    <X
+                      className="mt-0.5 h-4 w-4 flex-shrink-0 text-[#ff4d4f]"
+                      strokeWidth={2.5}
+                    />
+                    <span className="font-dm-sans text-[14px] text-white/65">
+                      {row.outro}
+                    </span>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          </div>
+        </div>
+
+        {/* Desktop/Tablet: tabela em 3 colunas */}
+        <div className="relative mt-16 hidden pt-4 md:block">
           {/* Header */}
           <div className="grid grid-cols-[1.1fr_1.4fr_1.4fr] items-end gap-px text-left">
             <div />

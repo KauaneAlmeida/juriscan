@@ -527,8 +527,10 @@ export default function Features() {
                   </a>
                 </div>
 
-                {/* Mock visual */}
-                <div className="aspect-[16/10] overflow-hidden rounded-[16px] border border-white/[0.08] bg-white/[0.02] p-2 shadow-[0_20px_60px_rgba(0,0,0,0.4)]">
+                {/* Mock visual — em mobile, sem overflow-hidden e sem
+                    aspect-ratio: o conteúdo dita a altura, nada é cortado.
+                    Em desktop, volta ao aspect-[16/10] fixo e bonito. */}
+                <div className="min-h-[340px] rounded-[16px] border border-white/[0.08] bg-white/[0.02] p-2 shadow-[0_20px_60px_rgba(0,0,0,0.4)] lg:aspect-[16/10] lg:min-h-0 lg:overflow-hidden">
                   <Mock />
                 </div>
               </div>
