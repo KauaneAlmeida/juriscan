@@ -125,7 +125,12 @@ export async function POST(request: NextRequest) {
         const { text, pageCount } = await extractTextFromBuffer(fileBuffer, file.type);
 
         if (text && text.length > 0) {
-          metadata.extracted_text = truncateText(text, 10000);
+          // 50k chars ≈ 12.5k tokens ≈ 15-20 páginas de petição/contrato.
+          // Cabe folgado nos 200k de contexto do Claude Opus 4.6 e cobre
+          // a maioria dos documentos. Antes era 10k (≈ 3-4 páginas), o
+          // que cortava texto demais e causava alucinação por falta de
+          // contexto real do documento.
+          metadata.extracted_text = truncateText(text, 50000);
           metadata.pages = pageCount;
         } else {
           console.warn("[chat-attachment] Texto extraído está vazio para:", file.name);

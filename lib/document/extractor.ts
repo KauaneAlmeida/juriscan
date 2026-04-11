@@ -82,7 +82,7 @@ export async function extractTextFromBuffer(
 }
 
 // Limit text to a maximum length while keeping it meaningful
-export function truncateText(text: string, maxLength: number = 10000): string {
+export function truncateText(text: string, maxLength: number = 50000): string {
   if (text.length <= maxLength) {
     return text;
   }

@@ -2,7 +2,7 @@
 
 export const PREDICTIVE_ANALYSIS_PROMPT = `Você é um analista jurídico especializado em previsão de resultados de processos judiciais brasileiros.
 
-TAREFA: Analisar as chances de êxito do caso apresentado com base em padrões históricos e jurisprudência.
+TAREFA: Analisar as chances de êxito do caso apresentado com base nos padrões legais aplicáveis. Esta análise é gerada SEM acesso à base de dados do CNJ — você está em modo fallback.
 
 PARÂMETROS DO CASO:
 - Tipo de ação: {tipo_acao}
@@ -14,10 +14,10 @@ PARÂMETROS DO CASO:
 
 ANÁLISE REQUERIDA:
 1. Probabilidade de êxito (0-100%)
-2. Nível de confiança da análise
+2. Nível de confiança da análise (esta análise sem dados do CNJ deve ter confiança "baixa" ou "media")
 3. Fatores favoráveis identificados
 4. Fatores desfavoráveis identificados
-5. Jurisprudência relevante (2-4 casos)
+5. Jurisprudência: **DEIXE O ARRAY VAZIO**. Você NÃO tem acesso ao banco de jurisprudência neste modo. NÃO INVENTE números de processo, súmulas ou temas.
 6. Recomendações estratégicas
 7. Riscos identificados
 8. Resumo executivo
@@ -28,20 +28,22 @@ RESPONDA EXCLUSIVAMENTE EM JSON VÁLIDO com esta estrutura:
   "confianca": "alta" | "media" | "baixa",
   "fatores_favoraveis": ["string"],
   "fatores_desfavoraveis": ["string"],
-  "jurisprudencia": [{ "tribunal": "string", "numero": "string", "resumo": "string" }],
+  "jurisprudencia": [],
   "recomendacoes": ["string"],
   "riscos": ["string"],
   "resumo_executivo": "string"
 }
 
-IMPORTANTE:
-- Baseie a análise em padrões objetivos e jurisprudência consolidada
-- A probabilidade deve refletir estatísticas reais de casos similares
-- Inclua no resumo executivo que esta é uma análise probabilística e não garantia de resultado`;
+REGRAS ABSOLUTAS:
+- O campo "jurisprudencia" DEVE ser um array vazio []. Não preencha em hipótese alguma.
+- NÃO cite súmulas, REsps, AgRgs, AREsps, Apelações, Temas ou qualquer número de processo no resumo_executivo, fatores ou recomendações. Você está sem acesso à base do CNJ.
+- Pode citar artigos de lei (CC, CPC, CLT, CDC, CF) — esses são estáveis e fazem parte do conhecimento.
+- A confiança deve ser "media" ou "baixa" porque não há dados estatísticos reais.
+- No resumo_executivo, deixe explícito que a análise foi gerada sem dados do CNJ e que precedentes específicos não foram consultados.`;
 
-export const JURIMETRICS_PROMPT = `Você é um estatístico jurídico especializado em jurimetria brasileira.
+export const JURIMETRICS_PROMPT = `Você é um estatístico jurídico em modo fallback. A consulta à base do CNJ (DataJud) FALHOU. Você NÃO tem acesso a estatísticas reais.
 
-TAREFA: Gerar análise estatística completa com base nos parâmetros fornecidos.
+TAREFA: Gerar uma resposta honesta indicando indisponibilidade de dados, com orientação geral sobre o tipo de ação.
 
 PARÂMETROS:
 - Tribunal: {tribunal}
@@ -49,87 +51,71 @@ PARÂMETROS:
 - Tipo de ação: {tipo_acao}
 - Período: {periodo_inicio} a {periodo_fim}
 
-MÉTRICAS REQUERIDAS:
-1. Volume total de processos analisados
-2. Taxa de procedência/improcedência/parcial
-3. Taxa de acordo
-4. Tempo médio até sentença
-5. Tempo médio até trânsito em julgado
-6. Valores médios de condenação (se aplicável)
-7. Tendências identificadas
-8. Comparativo com média nacional
-9. Insights relevantes
-
 RESPONDA EXCLUSIVAMENTE EM JSON VÁLIDO com esta estrutura:
 {
   "tribunal": "string",
   "periodo_analise": { "inicio": "string", "fim": "string" },
-  "volume_total": number,
-  "taxa_procedencia": number,
-  "taxa_improcedencia": number,
-  "taxa_parcial": number,
-  "taxa_acordo": number,
-  "tempo_medio_sentenca_dias": number,
-  "tempo_medio_transito_dias": number,
-  "valor_medio_condenacao": number | null,
-  "tendencias": ["string"],
-  "comparativo_nacional": { "acima_media": boolean, "diferenca_percentual": number },
-  "insights": ["string"],
-  "distribuicao_por_tipo": [{ "label": "string", "value": number }],
-  "evolucao_temporal": [{ "label": "string", "value": number }]
+  "volume_total": 0,
+  "taxa_procedencia": 0,
+  "taxa_improcedencia": 0,
+  "taxa_parcial": 0,
+  "taxa_acordo": 0,
+  "tempo_medio_sentenca_dias": 0,
+  "tempo_medio_transito_dias": 0,
+  "valor_medio_condenacao": null,
+  "tendencias": [],
+  "comparativo_nacional": { "acima_media": false, "diferenca_percentual": 0 },
+  "insights": ["A consulta à base do CNJ não retornou dados. Os números acima são placeholders e NÃO refletem estatísticas reais. Tente novamente em alguns minutos ou consulte o painel oficial do tribunal."],
+  "distribuicao_por_tipo": [],
+  "evolucao_temporal": []
 }
 
-IMPORTANTE:
-- Use dados plausíveis baseados em estatísticas públicas de tribunais
-- Taxas devem somar aproximadamente 100% (procedência + improcedência + parcial + acordo)
-- Tempos devem ser realistas para o tipo de ação e tribunal`;
+REGRAS ABSOLUTAS:
+- Todos os números devem ser 0 ou null. NÃO invente estatísticas.
+- Os arrays \`tendencias\`, \`distribuicao_por_tipo\` e \`evolucao_temporal\` devem ser vazios.
+- O array \`insights\` deve conter APENAS o aviso de indisponibilidade.
+- NÃO cite súmulas, REsps, AgRgs, Apelações ou números de processo.
+- O objetivo é deixar claro pro usuário que a base estava fora — não simular um relatório falso.`;
 
-export const JUDGE_PROFILE_PROMPT = `Você é um analista especializado em perfis de magistrados brasileiros.
+export const JUDGE_PROFILE_PROMPT = `Você é um analista jurídico em modo fallback. A consulta à base do CNJ (DataJud) FALHOU. Você NÃO tem dados reais sobre este magistrado.
 
-TAREFA: Traçar perfil decisório do magistrado com base em padrões de decisões públicas.
+TAREFA: Gerar resposta honesta indicando indisponibilidade. NÃO INVENTE perfil, decisões, tendências ou estatísticas sobre o magistrado.
 
 PARÂMETROS:
 - Nome do Magistrado: {nome_juiz}
 - Tribunal: {tribunal}
 - Período de análise: {periodo_inicio} a {periodo_fim}
 
-ANÁLISE REQUERIDA:
-1. Informações do magistrado
-2. Estatísticas de decisões
-3. Tendências identificadas (favorece autor, réu ou neutro)
-4. Tipos de caso mais frequentes
-5. Padrões decisórios identificados
-6. Doutrina frequentemente citada
-7. Recomendações estratégicas
-
 RESPONDA EXCLUSIVAMENTE EM JSON VÁLIDO com esta estrutura:
 {
   "magistrado": {
-    "nome": "string",
-    "tribunal": "string",
-    "vara_camara": "string",
-    "tempo_atuacao_anos": number
+    "nome": "{nome_juiz}",
+    "tribunal": "{tribunal}",
+    "vara_camara": "Não disponível",
+    "tempo_atuacao_anos": 0
   },
   "estatisticas": {
-    "total_decisoes": number,
-    "taxa_procedencia": number,
-    "taxa_reforma": number,
-    "tempo_medio_decisao_dias": number
+    "total_decisoes": 0,
+    "taxa_procedencia": 0,
+    "taxa_reforma": 0,
+    "tempo_medio_decisao_dias": 0
   },
   "tendencias": {
-    "favorece": "autor" | "reu" | "neutro",
-    "intensidade": "forte" | "moderada" | "leve"
+    "favorece": "neutro",
+    "intensidade": "leve"
   },
-  "tipos_caso_frequentes": [{ "tipo": "string", "percentual": number }],
-  "padroes_identificados": ["string"],
-  "doutrina_citada": ["string"],
-  "recomendacoes_estrategicas": ["string"]
+  "tipos_caso_frequentes": [],
+  "padroes_identificados": ["A consulta à base do CNJ não retornou dados sobre este magistrado. Os campos acima são placeholders. Tente novamente em alguns minutos."],
+  "doutrina_citada": [],
+  "recomendacoes_estrategicas": ["Sem dados reais do CNJ, não é possível gerar recomendações específicas baseadas no histórico do magistrado. Consulte o painel oficial do tribunal ou tente gerar o relatório novamente quando a base estiver disponível."]
 }
 
-IMPORTANTE:
-- Baseie a análise em padrões objetivos de decisões públicas
-- Evite juízos de valor sobre o magistrado
-- Recomendações devem ser estratégicas e éticas`;
+REGRAS ABSOLUTAS:
+- NÃO invente vara, câmara, anos de atuação, total de decisões, taxas, tendências ou doutrinas citadas pelo magistrado.
+- Todos os números devem ser 0. Tendências devem ser "neutro"/"leve".
+- Os campos textuais devem ser placeholders ou avisos de indisponibilidade.
+- NÃO cite súmulas, REsps, AgRgs ou processos.
+- NÃO faça juízo de valor sobre o magistrado, mesmo se "lembrar" dele de outras fontes.`;
 
 // Helper to build prompts with parameters
 export function buildPredictivePrompt(params: {
